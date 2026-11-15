@@ -1,0 +1,1 @@
+{"description":"One server that serves the OpenAI and Anthropic APIs over ten free-tier model providers.","license":"MIT","name":"free-model-aggregator-01","type":"module","version":"1.0.0"}

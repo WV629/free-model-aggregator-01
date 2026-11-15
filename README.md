@@ -18,7 +18,7 @@ MAKEFUN_ENV_URL=http://127.0.0.1:8080 MAKEFUN_PROMPT_FILE=prompt.txt node main.t
 
 - Candidates are every free model meeting the request's requirements (tools, vision, JSON mode, minimum context), ordered by the brief's quality rating, best first.
 - A JSON-mode request from an OpenAI client only goes to a wire that can carry `response_format` (OpenAI or Gemini); an Anthropic-wire provider would echo JSON mode absent.
-- A provider's budget is never published, so the server learns it from refusals: a provider that has failed three calls in a row, or used its whole sealed budget cap, is left out of later requests. Requests are passed through untouched in the provider's own wire — system prompt, user text and images, tools, stop sequences, `max_tokens`, JSON mode — and answered back in the wire the client used, with the provider's text whole, its usage counts, and its stop reason mapped.
+- A provider's budget is never published, so the server learns it from refusals: a refused provider is retried once with the same model (a refusal sits on its call number, and the next number usually answers) before the request falls over, and a provider that has failed three calls in a row, or used its whole sealed budget cap, is left out of later requests. Requests are passed through untouched in the provider's own wire — system prompt, user text and images, tools, stop sequences, `max_tokens`, JSON mode — and answered back in the wire the client used, with the provider's text whole, its usage counts, and its stop reason mapped.
 - No clock, no unseeded randomness: every choice is a function of the brief, the requests and the providers' answers, so a replay leaves the same state export.
 
 ---

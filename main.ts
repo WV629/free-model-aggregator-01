@@ -11,12 +11,14 @@
 //
 // Routing, in one line: candidates are every free model meeting the
 // request, ordered by the brief's rating, best first; a provider that
-// refuses is tried no further for that request, and a provider that has
-// failed three calls in a row, or has used its whole sealed budget, is
-// left out of later requests. A provider's budget is never published, so
-// the server learns it only from refusals; three straight refusals prove
-// a provider spent (at most two of them can sit on its failure schedule,
-// so the third is its budget gone or its outage begun).
+// refuses is retried once with the same model (a refusal sits on its
+// call number, and the next number usually answers) before the request
+// falls over to the next best, and a provider that has failed three
+// calls in a row, or has used its whole sealed budget, is left out of
+// later requests. A provider's budget is never published, so the server
+// learns it only from refusals; three straight refusals prove a provider
+// spent (at most two of them can sit on its failure schedule, so the
+// third is its budget gone or its outage begun).
 //
 // Everything here is a function of the brief, the requests and the
 // providers' answers: no clock, no unseeded randomness, so a replay
@@ -1308,23 +1310,33 @@ async function serve(clientApi: 'openai' | 'anthropic', body: Json, res: ServerR
     return;
   }
   for (const candidate of candidates) {
-    const result = await callUpstream(candidate, clientApi, body, stream);
-    if (!result.ok) continue;
-    const computed = usageOf(inputs, result.text);
-    if (result.usage !== null && (result.usage.input !== computed.input || result.usage.output !== computed.output)) {
-      log(
-        `usage mismatch on ${candidate.provider.id}/${candidate.model}: provider ${result.usage.input}/${result.usage.output}, computed ${computed.input}/${computed.output}`,
-      );
+    // A refusal sits on the provider's call number, not on the request: the
+    // next call number usually answers, so a refused candidate gets one
+    // immediate retry with the same model before the request falls over to
+    // the next best. A provider that has failed three calls in a row is
+    // spent, so there is nothing to retry.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const result = await callUpstream(candidate, clientApi, body, stream);
+      if (!result.ok) {
+        if (isSpent(candidate.provider)) break;
+        continue;
+      }
+      const computed = usageOf(inputs, result.text);
+      if (result.usage !== null && (result.usage.input !== computed.input || result.usage.output !== computed.output)) {
+        log(
+          `usage mismatch on ${candidate.provider.id}/${candidate.model}: provider ${result.usage.input}/${result.usage.output}, computed ${computed.input}/${computed.output}`,
+        );
+      }
+      const answer: ServedAnswer = {
+        text: result.text,
+        usage: result.usage ?? computed,
+        stop: result.stop,
+        model: candidate.model,
+      };
+      if (clientApi === 'openai') answerOpenAI(res, stream, answer);
+      else answerAnthropic(res, stream, answer);
+      return;
     }
-    const answer: ServedAnswer = {
-      text: result.text,
-      usage: result.usage ?? computed,
-      stop: result.stop,
-      model: candidate.model,
-    };
-    if (clientApi === 'openai') answerOpenAI(res, stream, answer);
-    else answerAnthropic(res, stream, answer);
-    return;
   }
   log(`unserved: every candidate refused (${candidates.length} tried)`);
   sendError(res, clientApi, 503, clientApi === 'anthropic' ? 'overloaded_error' : 'no_free_model', 'every free model refused this request');
